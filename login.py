@@ -8,26 +8,43 @@ Usage:
     python3 login.py
 
 Steps:
-1. A visible Chrome window opens at gmail.com.
+1. A browser window opens at gmail.com (visible on your screen).
 2. Log in with your Google account as you normally would (including 2FA if enabled).
-3. Once you see your Gmail inbox, press ENTER in this terminal.
-4. The session is saved to session.json and the browser closes.
+3. Once you can see your Gmail inbox, the script detects it automatically and
+   saves the session. The browser closes on its own — you do not need to do anything else.
 """
 
+import os
 import sys
 from pathlib import Path
-from playwright.sync_api import sync_playwright
+from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeout
 
 SESSION_FILE = Path("session.json")
 
+# Allow the browser to show on screen when a display is available.
+# On Linux this sets the X11 display; on other OS it is ignored.
+_DISPLAY = os.environ.get("DISPLAY", ":1")
+
 
 def main() -> None:
-    print("Opening browser — log in to Gmail, then come back here and press ENTER.")
+    print(f"Opening browser on display {_DISPLAY} — please log in to Gmail.")
+    print("The session will be saved automatically once your inbox is detected.\n")
+
+    env = os.environ.copy()
+    env["DISPLAY"] = _DISPLAY
+    # Propagate the updated display so the Playwright subprocess picks it up.
+    os.environ["DISPLAY"] = _DISPLAY
 
     with sync_playwright() as p:
         browser = p.chromium.launch(
             headless=False,
-            args=["--start-maximized"],
+            args=[
+                "--no-sandbox",
+                "--disable-dev-shm-usage",
+                "--start-maximized",
+                "--disable-blink-features=AutomationControlled",
+            ],
+            env=env,
         )
         context = browser.new_context(
             viewport=None,
@@ -40,16 +57,25 @@ def main() -> None:
         page = context.new_page()
         page.goto("https://mail.google.com/")
 
+        print("Waiting for you to log in (up to 3 minutes)...")
         try:
-            input("\nPress ENTER once you are logged in and can see your Gmail inbox > ")
-        except EOFError:
-            print("Non-interactive mode detected — waiting 120 s for manual login.")
-            page.wait_for_timeout(120_000)
+            # Wait until we land on the Gmail inbox (URL contains /mail/u/)
+            page.wait_for_url("**/mail/u/**", timeout=180_000)
+            # Give Gmail a moment to fully load so all auth cookies are set
+            page.wait_for_timeout(3_000)
+            print("Inbox detected!")
+        except PlaywrightTimeout:
+            print(
+                "Timed out waiting for login. "
+                "Saving whatever session state is available."
+            )
 
         context.storage_state(path=str(SESSION_FILE))
         browser.close()
 
-    print(f"\nSession saved to {SESSION_FILE}. You can now run browser_send.py.")
+    print(f"\nSession saved to {SESSION_FILE}.")
+    print("You can now send emails with:  python3 browser_send.py --to ... --subject ... --body ...")
+
 
 
 if __name__ == "__main__":
