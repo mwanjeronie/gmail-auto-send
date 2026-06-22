@@ -1,34 +1,79 @@
 # gmail-auto-send
 
-Send emails from your Gmail account programmatically using the official Gmail API and OAuth2. Supports plain-text and HTML bodies, CC/BCC, and file attachments.
+Two ways to send emails from your Gmail account automatically:
+
+| Approach | Files | Requires |
+|---|---|---|
+| **Browser automation** *(simplest)* | `login.py`, `browser_send.py` | Just log in once in a browser window |
+| **Gmail API** *(more powerful)* | `auth.py`, `gmail.py`, `send.py` | Google Cloud project + `credentials.json` |
 
 ---
 
-## How it works
+## Approach 1 — Browser automation (no API setup needed)
 
-Authentication uses OAuth2 (the same standard Google uses for "Sign in with Google"). You authorize the app once in your browser; a `token.json` file is saved locally so every subsequent run skips the browser prompt.
+This is the easiest way to get started. A real Chrome browser opens, you log in to Gmail as normal, and from then on the script can send emails for you invisibly in the background.
 
-No passwords are stored. The token only grants permission to **send mail** (`gmail.send` scope) — it cannot read, delete, or modify any existing messages.
+### 1. Install dependencies
+
+```bash
+pip install -r requirements.txt
+playwright install chromium
+```
+
+### 2. Log in once
+
+```bash
+python3 login.py
+```
+
+A browser window opens. Log in to Gmail normally (including any 2FA). Once you see your inbox, switch back to the terminal and press **ENTER**. Your session is saved to `session.json` — you never have to log in again (until the session expires, typically weeks later).
+
+### 3. Send emails
+
+```bash
+python3 browser_send.py --to friend@example.com --subject "Hi" --body "Hello!"
+```
+
+The browser runs invisibly in the background. Add `--visible` to watch it work in real time:
+
+```bash
+python3 browser_send.py --to friend@example.com --subject "Hi" --body "Hello!" --visible
+```
+
+### As a Python library
+
+```python
+from browser_send import browser_send_email
+
+browser_send_email(
+    to="friend@example.com",
+    subject="Hello",
+    body="Hi there!",
+)
+
+# Bulk sending
+contacts = ["alice@example.com", "bob@example.com"]
+for email in contacts:
+    browser_send_email(to=email, subject="Newsletter", body="Check this out!")
+```
+
+> `session.json` is listed in `.gitignore` — never commit it.
 
 ---
 
-## Setup
+## Approach 2 — Gmail API (supports HTML, attachments, CC/BCC)
+
+Use this when you need HTML emails, file attachments, or multiple recipients.
 
 ### 1. Enable the Gmail API and create OAuth credentials
 
 1. Go to the [Google Cloud Console](https://console.cloud.google.com/).
 2. Create a new project (or select an existing one).
-3. Navigate to **APIs & Services → Library**, search for **Gmail API**, and click **Enable**.
-4. Navigate to **APIs & Services → OAuth consent screen**:
-   - Choose **External** (works for personal accounts).
-   - Fill in the required fields (app name, support email).
-   - Add your own Gmail address under **Test users**.
-5. Navigate to **APIs & Services → Credentials → Create Credentials → OAuth client ID**:
-   - Application type: **Desktop app**.
-   - Click **Create**, then **Download JSON**.
-6. Rename the downloaded file to `credentials.json` and place it in this project's root directory.
+3. **APIs & Services → Library** → search "Gmail API" → **Enable**.
+4. **APIs & Services → OAuth consent screen** → External → fill in app name + add your Gmail as a test user.
+5. **APIs & Services → Credentials → Create Credentials → OAuth client ID** → Desktop app → Download JSON → rename it `credentials.json` → place it in the project root.
 
-> `credentials.json` and `token.json` are listed in `.gitignore` — **never commit them**.
+> `credentials.json` and `token.json` are in `.gitignore` — never commit them.
 
 ### 2. Install dependencies
 
@@ -39,30 +84,26 @@ pip install -r requirements.txt
 ### 3. Authorize (first run only)
 
 ```bash
-python send.py --to you@example.com --subject "Test" --body "Hello!"
+python3 send.py --to you@example.com --subject "Test" --body "Hello!"
 ```
 
-A browser window opens asking you to grant permission. After you approve, `token.json` is saved and the email is sent. All future runs skip this step.
+A browser window opens asking you to grant permission. After you approve, `token.json` is saved and all future runs skip this step.
 
----
-
-## Usage
-
-### Command-line
+### Usage
 
 ```bash
 # Plain-text email
-python send.py --to recipient@example.com --subject "Hello" --body "Hi there!"
+python3 send.py --to recipient@example.com --subject "Hello" --body "Hi there!"
 
 # HTML email
-python send.py \
+python3 send.py \
   --to recipient@example.com \
   --subject "Report" \
   --body "<h1>All done</h1><p>See details below.</p>" \
   --html
 
 # Multiple recipients with CC and an attachment
-python send.py \
+python3 send.py \
   --to alice@example.com bob@example.com \
   --cc manager@example.com \
   --subject "Q2 Report" \
@@ -82,19 +123,13 @@ Full option reference:
 | `--bcc` | BCC recipients |
 | `--attach` | One or more file paths to attach |
 
-### Python library
+### As a Python library
 
 ```python
 from gmail import send_email
 
-# Plain text
-send_email(
-    to=["alice@example.com"],
-    subject="Hello",
-    body="Hi Alice!",
-)
+send_email(to=["alice@example.com"], subject="Hello", body="Hi Alice!")
 
-# HTML with attachment
 send_email(
     to=["alice@example.com"],
     subject="Q2 Report",
@@ -102,18 +137,6 @@ send_email(
     html=True,
     attachments=["report.pdf"],
 )
-
-# Bulk / personalised sending
-recipients = [
-    {"email": "alice@example.com", "name": "Alice"},
-    {"email": "bob@example.com",   "name": "Bob"},
-]
-for person in recipients:
-    send_email(
-        to=[person["email"]],
-        subject=f"Hi {person['name']}!",
-        body=f"Dear {person['name']}, thanks for reaching out!",
-    )
 ```
 
 See `examples.py` for more patterns.
@@ -124,31 +147,22 @@ See `examples.py` for more patterns.
 
 ```
 .
-├── auth.py          # OAuth2 flow — get/refresh credentials
-├── gmail.py         # Core send_email() function
-├── send.py          # CLI entry point
+├── login.py         # Step 1 for browser approach — log in and save session
+├── browser_send.py  # Browser-based sender (no API keys)
+├── auth.py          # OAuth2 flow for Gmail API approach
+├── gmail.py         # Core send_email() for Gmail API approach
+├── send.py          # CLI for Gmail API approach
 ├── examples.py      # Runnable usage examples
 ├── requirements.txt
-├── credentials.json # ← you add this (not committed)
-└── token.json       # ← auto-generated after first auth (not committed)
+├── session.json     # ← auto-generated by login.py (not committed)
+├── credentials.json # ← you add this for API approach (not committed)
+└── token.json       # ← auto-generated after first API auth (not committed)
 ```
 
 ---
 
 ## Security notes
 
-- Add `credentials.json` and `token.json` to `.gitignore` (see below).
-- Never share or commit either file.
-- To revoke access at any time, visit [Google Account Permissions](https://myaccount.google.com/permissions) and remove the app.
-
----
-
-## .gitignore
-
-```
-credentials.json
-token.json
-__pycache__/
-*.pyc
-.env
-```
+- `session.json`, `credentials.json`, and `token.json` are all in `.gitignore` — never commit them.
+- To revoke browser access: go to [Google Account Security](https://myaccount.google.com/security) and sign out the session.
+- To revoke API access: visit [Google Account Permissions](https://myaccount.google.com/permissions) and remove the app.
